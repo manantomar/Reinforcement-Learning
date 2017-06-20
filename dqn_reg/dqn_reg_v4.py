@@ -14,7 +14,7 @@ import random
 class net_v4:
 
     # initiate tensorboard summaries
-    def __init__(self, discount, clip_delta, batch, lambda_reg ):
+    def __init__(self, discount, clip_delta, batch, lambda_reg):
 
         self.discount = discount
         self.clip_delta = clip_delta
@@ -22,39 +22,43 @@ class net_v4:
         self.lambda_reg = lambda_reg
 
         #num_actions = tf.placeholder("uint8", ())
-        self.Q_val, self.f_pred, self.f_true = self.build_net(4)
+        self.Q_val, self.f_pred, self.f_true = self.build_net(6)
 
-        self.next_Q_val = tf.placeholder("float", [self.batch, 4])
+        self.next_Q_val = tf.placeholder("float", [self.batch, 6])
         #self.action = tf.placeholder("float", [self.batch, 4])
-        self.reward = tf.placeholder("float", [self.batch, 1])
-        self.done = tf.placeholder("float", [self.batch, 1])
+        self.reward = tf.placeholder("float", [self.batch, ])
+        self.done = tf.placeholder("float", [self.batch, ])
 
         target = self.reward + self.discount * \
-        tf.to_float((np.ones_like(self.done) - self.done)) * tf.reduce_max(self.next_Q_val, axis=1)
+        tf.to_float((np.ones_like(self.done) - self.done)) * tf.reduce_max(self.next_Q_val, axis=1, keep_dims=True)
 
         # not yet clear what it does actually
         action_mask = np.equal(tf.reshape(np.arange(16), [1,-1]), tf.reshape(self.action[:,0], [-1,1]))
         out = tf.reshape(tf.reduce_sum((self.Q_val*action_mask), 1), [-1,1])
 
-        diff = target - out
-        diff_reg = self.f_true - self.f_pred
+        self.diff = target - out
+        self.diff_reg = self.f_true - self.f_pred
 
         if self.clip_delta > 0:
-            quadratic_part = tf.minimum(abs(diff), self.clip_delta)
-            linear_part = abs(diff) - quadratic_part
+            quadratic_part = tf.minimum(abs(self.diff), self.clip_delta)
+            linear_part = abs(self.diff) - quadratic_part
             self.loss = 0.5 * quadratic_part ** 2 + self.clip_delta * linear_part
         else:
-            self.loss = 0.5 * diff ** 2
+            self.loss = 0.5 * self.diff ** 2
 
-        self.loss += tf.reduce_sum(0.5 * self.lambda_reg * (diff_reg ** 2), 1)
-        self.train_step = tf.train.AdamOptimizer(1e-4).minimize(self.loss)
+        self.loss += tf.reduce_sum(0.5 * self.lambda_reg * (self.diff_reg ** 2), 1)
+        self.loss = tf.reduce_sum(self.loss)
+        tf.summary.scalar("loss", self.loss)
+
+        optimizer = tf.train.AdamOptimizer(learning_rate = 0.00025)
+        self.train_step = optimizer.minimize(self.loss)
         # sample an action from
 
     def q_val(self, state):
 
         return self.Q_val.eval(feed_dict = {self.state : state})
 
-    def train(self, state, action, reward, done):
+    def train(self, state, action, reward, done, merged_summary_op):
 
         state_padded = np.zeros((state.shape[0], state.shape[1]+1, state.shape[2], state.shape[3]))
         state_padded[:,:-1] = state
@@ -74,6 +78,31 @@ class net_v4:
                 self.next_Q_val : next_Q_val,
                 self.reward : reward,
                 self.done : done})
+        diff_reg = self.diff_reg.eval(feed_dict = {
+                self.state : state,
+                self.action : action,
+                self.next_Q_val : next_Q_val,
+                self.reward : reward,
+                self.done : done})
+
+        diff = self.diff.eval(feed_dict = {
+                self.state : state,
+                self.action : action,
+                self.next_Q_val : next_Q_val,
+                self.reward : reward,
+                self.done : done})
+        #print("loss", np.sum(0.5 * self.lambda_reg * (diff_reg ** 2)))
+        #print("loss diff", np.sum(diff))
+        print("loss total", cost)
+
+        summary = merged_summary_op.eval(feed_dict = {
+                self.state : state,
+                self.action : action,
+                self.next_Q_val : next_Q_val,
+                self.reward : reward,
+                self.done : done})
+
+        return summary
 
     def weight_variable(self, name, shape):
         initial = tf.contrib.layers.xavier_initializer()
