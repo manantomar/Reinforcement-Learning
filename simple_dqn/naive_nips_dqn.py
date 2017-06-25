@@ -30,10 +30,35 @@ def conv2d(x, W, stride):
 def max_pool_2x2(x):
     return tf.nn.max_pool(x, ksize = [1, 2, 2, 1], strides = [1, 2, 2, 1], padding = "SAME")
 
-def dqn(x):
+def rgb2gray(frame):
 
-    #x = tf.reshape(x, (-1, 84, 84, 2))
-    x = tf.reshape(x, (-1, 4, 4, 2))
+    r, g, b = frame[:,:,0], frame[:,:,1], frame[:,:,2]
+    gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
+
+    return gray
+
+def preprocess(frame):
+
+    gray_image = rgb2gray(frame)
+    reshaped_image = cv2.resize(gray_image.astype(np.float32), (84, 84))
+    x = np.reshape(reshaped_image, [84,84,1])
+    x *= 1 / 255.0
+
+    return x
+
+class q_network():
+
+    def __init__(self, scope):
+
+        self.scope = scope
+        with tf.variable_scope(self.scope):
+
+            self.build_net()
+
+
+    def build_net():
+
+    x = tf.placeholder("float", [None, 84, 84, 4])
     #print(x.shape)
     conv1 = tf.layers.conv2d(x, 32, [5, 5], padding="same", activation=tf.nn.relu)
     print(conv1.shape)
@@ -54,13 +79,6 @@ def dqn(x):
 
     return action_logits
 
-def preprocess(frame):
-    gray_image = frame.mean(2)
-    #reshaped_image = imresize(gray_image, (84,84))
-    reshaped_image = imresize(gray_image, (4,4))
-    #x = np.reshape(reshaped_image, [84,84,1])
-    x = np.reshape(reshaped_image, [4,4,1])
-    return x
 
 def rollout(sess, max_iter=5000):
 
