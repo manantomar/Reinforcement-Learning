@@ -21,9 +21,9 @@ import cv2
 
 flags = tf.app.flags
 flags.DEFINE_boolean('train', True, 'Whether to do training or testing')
-flags.DEFINE_string('env_name', 'MsPacman-v0', 'The name of gym environment to use')
+flags.DEFINE_string('env_name', 'Pong-v0', 'The name of gym environment to use')
 
-env = gym.make(flags.env_name)
+env = gym.make(flags.FLAGS.env_name)
 
 epsilon = 0.35
 MAX_EPISODES = 10000
@@ -63,7 +63,7 @@ class autoencoder():
         self.pred_frame = self.build_encoder()
         self.y = tf.placeholder("float", [BATCH, 84, 84])
         self.loss = tf.square(tf.norm(self.y - self.pred_frame))
-        train_step = tf.train.AdamOptimizer(1e-4).minimize(self.loss)
+        self.train_step = tf.train.AdamOptimizer(1e-4).minimize(self.loss)
 
         self.summary_writer = tf.summary.FileWriter(logs_path, graph=tf.get_default_graph())
         self.summaries = tf.summary.merge_all(tf.summary.scalar("loss", self.loss))
@@ -173,7 +173,7 @@ class autoencoder():
           Tensor of shape [batch_size, NUM_VALID_ACTIONS] containing the estimated
           action values.
         """
-        return sess.run(self.pred_frame, { self.state: state, self.action : action })
+        return sess.run(self.pred_frame, { self.state: s, self.action : a })
 
     def update(self, sess, s, a, y, p):
         """
@@ -187,12 +187,12 @@ class autoencoder():
         Returns:
           The calculated loss on the batch.
         """
-        feed_dict = { y : target_batch, self.pred_frame : pred_batch,
-                    self.state : state_batch, self.action : action_batch }
-        summaries, _, loss = sess.run(
-            [self.summaries, self.train_step, self.loss], feed_dict)
-        if self.summary_writer:
-            self.summary_writer.add_summary(summaries, global_step)
+        feed_dict = { self.y : y, self.pred_frame : p,
+                    self.state : s, self.action : a }
+        _, loss = sess.run(
+            [self.train_step, self.loss], feed_dict)
+        #if self.summary_writer:
+        #    self.summary_writer.add_summary(summaries, global_step)
         return loss
 
 def rgb2gray(frame):
@@ -258,12 +258,11 @@ def rollout(sess, prediction_net):
             s_t1 = np.append(obf, s_t[:,:,0:3], axis = 2)
 
             # if training, collect data and apply learning updates
-            if flags.train:
+            if flags.FLAGS.train:
                 # storing current state and the next frame
                 D.append((s_t, action_vector, obf))
                 if len(D) > REPLAY_MEMORY:
                     D.popleft()
-
 
                 if num_episodes > 32:
                     minibatch = random.sample(D, BATCH)
@@ -272,9 +271,9 @@ def rollout(sess, prediction_net):
                     target_batch = [d[2] for d in minibatch]
                     target_batch = np.reshape(target_batch, (BATCH, 84, 84))
 
-                    pred_batch = prediction_net.predict(np.reshape(state_batch, (BATCH, 84, 84, 4)), np.reshape(action_batch, (BATCH, 6)))
+                    pred_batch = prediction_net.predict(sess, np.reshape(state_batch, (BATCH, 84, 84, 4)), np.reshape(action_batch, (BATCH, 6)))
 
-                    loss = prediction_net.predict(state_batch, action_batch, target_batch, pred_batch)
+                    loss = prediction_net.update(sess, state_batch, action_batch, target_batch, pred_batch)
 
                     #summary_writer.add_summary(summary, num_episodes)
 
